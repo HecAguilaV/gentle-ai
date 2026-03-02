@@ -89,7 +89,7 @@ func (a *Adapter) SystemPromptFile(homeDir string) string {
 }
 
 func (a *Adapter) SkillsDir(homeDir string) string {
-	return filepath.Join(homeDir, ".config", "opencode", "skill")
+	return filepath.Join(homeDir, ".config", "opencode", "skills")
 }
 
 func (a *Adapter) SettingsPath(homeDir string) string {

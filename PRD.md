@@ -282,7 +282,7 @@ The full SDD Agent Team skill set (9 skills):
 | sdd-archive | Archive completed changes |
 
 **Requirements:**
-- R-SDD-01: SDD skills MUST be installed to the correct path for each selected agent (Claude Code: `~/.claude/skills/`, OpenCode: `~/.config/opencode/skill/`, Cursor: `~/.cursor/skills/`)
+- R-SDD-01: SDD skills MUST be installed to the correct path for each selected agent (Claude Code: `~/.claude/skills/`, OpenCode: `~/.config/opencode/skills/`, Cursor: `~/.cursor/skills/`)
 - R-SDD-02: The SDD orchestrator configuration MUST be injected into the agent's global config (CLAUDE.md, opencode.json agents, .cursorrules)
 - R-SDD-03: OpenCode slash commands (`/sdd-init`, `/sdd-new`, etc.) MUST be installed when OpenCode is selected
 - R-SDD-04: The installer MUST pull SDD skills from the latest release of `Gentleman-Programming/sdd-agent-team`
@@ -1239,7 +1239,7 @@ When the installer completes with "Full Gentleman" preset + Claude Code + OpenCo
 
 **OpenCode:**
 - `~/.config/opencode/opencode.json` — Agents (gentleman, sdd-orchestrator), MCP servers (engram, context7), Engram plugin, Gentleman theme
-- `~/.config/opencode/skill/` — All selected skills mirrored
+- `~/.config/opencode/skills/` — All selected skills mirrored
 - `~/.config/opencode/commands/` — SDD slash commands
 - `~/.config/opencode/plugins/` — Engram TypeScript plugin
 

@@ -103,7 +103,7 @@ func TestGoldenSDD_OpenCode(t *testing.T) {
 	assertGolden(t, "sdd-opencode-cmd-sdd-init.golden", sddInit)
 
 	// Golden-check a representative SDD skill file.
-	skillInit := readTestFile(t, filepath.Join(home, ".config", "opencode", "skill", "sdd-init", "SKILL.md"))
+	skillInit := readTestFile(t, filepath.Join(home, ".config", "opencode", "skills", "sdd-init", "SKILL.md"))
 	assertGolden(t, "sdd-opencode-skill-sdd-init.golden", skillInit)
 
 	// Verify ALL expected command files exist.
@@ -296,10 +296,10 @@ func TestGoldenSkills_OpenCode(t *testing.T) {
 		t.Fatalf("skills.Inject(opencode) changed = false")
 	}
 
-	goTestingSkill := readTestFile(t, filepath.Join(home, ".config", "opencode", "skill", "go-testing", "SKILL.md"))
+	goTestingSkill := readTestFile(t, filepath.Join(home, ".config", "opencode", "skills", "go-testing", "SKILL.md"))
 	assertGolden(t, "skills-opencode-go-testing.golden", goTestingSkill)
 
-	skillCreator := readTestFile(t, filepath.Join(home, ".config", "opencode", "skill", "skill-creator", "SKILL.md"))
+	skillCreator := readTestFile(t, filepath.Join(home, ".config", "opencode", "skills", "skill-creator", "SKILL.md"))
 	assertGolden(t, "skills-opencode-skill-creator.golden", skillCreator)
 }
 

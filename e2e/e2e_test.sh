@@ -569,7 +569,7 @@ test_oc_sdd_injection() {
 
     if $BINARY install --agent opencode --component sdd --persona neutral 2>&1; then
         local commands_dir="$HOME/.config/opencode/commands"
-        local skill_dir="$HOME/.config/opencode/skill"
+        local skill_dir="$HOME/.config/opencode/skills"
 
         # Command files (8 SDD commands from embedded assets)
         assert_dir_exists "$commands_dir" "OpenCode commands directory"
@@ -624,7 +624,7 @@ test_oc_skills_minimal() {
     cleanup_test_env
 
     if $BINARY install --agent opencode --component skills --preset minimal --persona neutral 2>&1; then
-        local skill_dir="$HOME/.config/opencode/skill"
+        local skill_dir="$HOME/.config/opencode/skills"
         assert_dir_exists "$skill_dir" "OpenCode skill directory"
         assert_file_count "$skill_dir" "SKILL.md" 9 "Minimal preset: 9 SDD skill files"
         assert_file_exists "$skill_dir/sdd-init/SKILL.md" "sdd-init SKILL.md"
@@ -639,7 +639,7 @@ test_oc_skills_full() {
     cleanup_test_env
 
     if $BINARY install --agent opencode --component skills --preset full-gentleman --persona neutral 2>&1; then
-        local skill_dir="$HOME/.config/opencode/skill"
+        local skill_dir="$HOME/.config/opencode/skills"
         assert_dir_exists "$skill_dir" "OpenCode skill directory"
         assert_file_count "$skill_dir" "SKILL.md" 11 "Full preset: 11 skill files"
         assert_file_exists "$skill_dir/go-testing/SKILL.md" "go-testing skill"
@@ -764,7 +764,7 @@ test_full_preset_opencode() {
         assert_file_count_min "$HOME/.config/opencode/commands" "*.md" 7 "SDD command files"
 
         # Skills
-        assert_file_count_min "$HOME/.config/opencode/skill" "SKILL.md" 9 "At least 9 skill files"
+        assert_file_count_min "$HOME/.config/opencode/skills" "SKILL.md" 9 "At least 9 skill files"
 
         log_pass "Full preset: all OpenCode injection-only components coexist"
     else
@@ -815,7 +815,7 @@ test_ecosystem_both_agents() {
 
         # OpenCode
         assert_file_count_min "$HOME/.config/opencode/commands" "*.md" 7 "OpenCode SDD commands"
-        assert_file_count_min "$HOME/.config/opencode/skill" "SKILL.md" 9 "OpenCode skills"
+        assert_file_count_min "$HOME/.config/opencode/skills" "SKILL.md" 9 "OpenCode skills"
         assert_file_contains "$HOME/.config/opencode/opencode.json" '"context7"' "OpenCode context7"
         assert_valid_json "$HOME/.config/opencode/opencode.json" "OpenCode opencode.json valid JSON"
 

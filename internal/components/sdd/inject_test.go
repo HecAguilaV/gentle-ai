@@ -139,12 +139,12 @@ func TestInjectOpenCodeWritesCommandFiles(t *testing.T) {
 		t.Fatal("opencode.json missing sdd-orchestrator agent")
 	}
 
-	sharedPath := filepath.Join(home, ".config", "opencode", "skill", "_shared", "persistence-contract.md")
+	sharedPath := filepath.Join(home, ".config", "opencode", "skills", "_shared", "persistence-contract.md")
 	if _, err := os.Stat(sharedPath); err != nil {
 		t.Fatalf("expected shared SDD convention file %q: %v", sharedPath, err)
 	}
 
-	skillPath := filepath.Join(home, ".config", "opencode", "skill", "sdd-init", "SKILL.md")
+	skillPath := filepath.Join(home, ".config", "opencode", "skills", "sdd-init", "SKILL.md")
 	skillContent, err := os.ReadFile(skillPath)
 	if err != nil {
 		t.Fatalf("ReadFile(sdd-init SKILL.md) error = %v", err)

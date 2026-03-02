@@ -32,7 +32,7 @@ func TestInjectWritesSkillFilesForOpenCode(t *testing.T) {
 		t.Fatalf("Inject() files len = %d", len(result.Files))
 	}
 
-	path := filepath.Join(home, ".config", "opencode", "skill", "skill-creator", "SKILL.md")
+	path := filepath.Join(home, ".config", "opencode", "skills", "skill-creator", "SKILL.md")
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("expected skill file %q: %v", path, err)
 	}
@@ -201,7 +201,7 @@ func TestSkillPathForAgent(t *testing.T) {
 	}
 
 	path = SkillPathForAgent("/home/test", opencodeAdapter(), model.SkillCreator)
-	want = "/home/test/.config/opencode/skill/skill-creator/SKILL.md"
+	want = "/home/test/.config/opencode/skills/skill-creator/SKILL.md"
 	if path != want {
 		t.Fatalf("SkillPathForAgent() = %q, want %q", path, want)
 	}
