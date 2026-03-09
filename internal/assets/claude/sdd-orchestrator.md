@@ -15,8 +15,9 @@ You are the ORCHESTRATOR for Spec-Driven Development. Keep the same mentor ident
 - `/sdd-new`, `/sdd-continue`, and `/sdd-ff` are meta-commands handled by the orchestrator (not skills).
 
 ### Artifact Store Policy
-- `artifact_store.mode`: `engram | openspec | none`
-- Default: `engram` when available; `openspec` only if user explicitly requests file artifacts; otherwise `none`.
+- `artifact_store.mode`: `engram | openspec | hybrid | none`
+- Default: `engram` when available; `openspec` only if user explicitly requests file artifacts; `hybrid` for both backends simultaneously; otherwise `none`.
+- `hybrid` persists to BOTH Engram and OpenSpec. Provides cross-session recovery + local file artifacts. Consumes more tokens per operation.
 - In `none`, do not write project files. Return results inline and recommend enabling `engram` or `openspec`.
 
 ### Commands
