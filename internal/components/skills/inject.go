@@ -4,12 +4,20 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
+	"strings"
 
 	"github.com/gentleman-programming/gentle-ai/internal/agents"
 	"github.com/gentleman-programming/gentle-ai/internal/assets"
 	"github.com/gentleman-programming/gentle-ai/internal/components/filemerge"
 	"github.com/gentleman-programming/gentle-ai/internal/model"
 )
+
+// isSDDSkill reports whether a skill ID belongs to the SDD orchestrator suite.
+// SDD skills are installed by the SDD component; the skills component skips
+// them to prevent duplicate writes when both components are selected.
+func isSDDSkill(id model.SkillID) bool {
+	return strings.HasPrefix(string(id), "sdd-")
+}
 
 type InjectionResult struct {
 	Changed bool
@@ -22,6 +30,10 @@ type InjectionResult struct {
 //
 // The skills directory is determined by adapter.SkillsDir(), removing
 // the need for any agent-specific switch statements.
+//
+// SDD skills (those whose IDs begin with "sdd-") are intentionally skipped
+// here because the SDD component installs them as part of its own injection.
+// This prevents a write conflict when both components are selected together.
 //
 // Individual skill failures (e.g., missing embedded asset) are logged
 // and skipped rather than aborting the entire operation.
@@ -40,6 +52,11 @@ func Inject(homeDir string, adapter agents.Adapter, skillIDs []model.SkillID) (I
 	changed := false
 
 	for _, id := range skillIDs {
+		// SDD skills are written by the SDD component — skip to avoid conflicts.
+		if isSDDSkill(id) {
+			continue
+		}
+
 		assetPath := "skills/" + string(id) + "/SKILL.md"
 		content, readErr := assets.Read(assetPath)
 		if readErr != nil {

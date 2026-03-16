@@ -59,7 +59,9 @@ func TestInjectWritesSkillFilesForOpenCode(t *testing.T) {
 func TestInjectWritesSkillFilesForClaude(t *testing.T) {
 	home := t.TempDir()
 
-	result, err := Inject(home, claudeAdapter(), []model.SkillID{model.SkillCreator, model.SkillSDDInit})
+	// Only non-SDD skills are written by the skills component; SDD skills are
+	// handled exclusively by the SDD component to prevent double-write conflicts.
+	result, err := Inject(home, claudeAdapter(), []model.SkillID{model.SkillCreator, model.SkillGoTesting})
 	if err != nil {
 		t.Fatalf("Inject() error = %v", err)
 	}
@@ -71,10 +73,37 @@ func TestInjectWritesSkillFilesForClaude(t *testing.T) {
 		t.Fatalf("Inject() files len = %d, want 2", len(result.Files))
 	}
 
-	for _, id := range []model.SkillID{model.SkillCreator, model.SkillSDDInit} {
+	for _, id := range []model.SkillID{model.SkillCreator, model.SkillGoTesting} {
 		path := filepath.Join(home, ".claude", "skills", string(id), "SKILL.md")
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("expected skill file %q: %v", path, err)
+		}
+	}
+}
+
+func TestInjectSkipsSddSkills(t *testing.T) {
+	home := t.TempDir()
+
+	// SDD skills should be silently skipped — they are installed by the SDD component.
+	result, err := Inject(home, claudeAdapter(), []model.SkillID{
+		model.SkillSDDInit,
+		model.SkillSDDApply,
+		model.SkillCreator,
+	})
+	if err != nil {
+		t.Fatalf("Inject() error = %v", err)
+	}
+
+	// Only the non-SDD skill (skill-creator) should be written.
+	if len(result.Files) != 1 {
+		t.Fatalf("Inject() files len = %d, want 1 (only skill-creator)", len(result.Files))
+	}
+
+	// SDD skill files must not be created by the skills component.
+	for _, id := range []model.SkillID{model.SkillSDDInit, model.SkillSDDApply} {
+		path := filepath.Join(home, ".claude", "skills", string(id), "SKILL.md")
+		if _, statErr := os.Stat(path); statErr == nil {
+			t.Fatalf("skills component must not write SDD skill %q — it belongs to the SDD component", id)
 		}
 	}
 }
