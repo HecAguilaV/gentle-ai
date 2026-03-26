@@ -128,7 +128,7 @@ Since SDD phases run inline, YOU read and write all artifacts directly. Each pha
 | `sdd-verify` | spec + tasks | `verify-report` |
 | `sdd-archive` | all artifacts | `archive-report` |
 
-For phases with required dependencies, retrieve artifacts from Engram using topic keys before starting the phase. Pass artifact references (topic keys), NOT content itself. Retrieve full content only when actively working on that phase — do not inline entire specs or designs into conversation context. Do NOT rely on conversation history alone — conversation context is lossy across sessions.
+For phases with required dependencies, retrieve artifacts from Engram using topic keys before starting the phase. Pass artifact references (topic keys), NOT full content. Retrieve full content only when actively working on that phase — do not inline entire specs or designs into conversation context. Do NOT rely on conversation history alone — conversation context is lossy across sessions.
 
 ### Non-SDD Tasks
 
@@ -158,7 +158,7 @@ Retrieve full content via two steps:
 
 ## State and Conventions
 
-Convention files under `~/.gemini/skills/_shared/` (global) or `.agent/skills/_shared/` (workspace): `engram-convention.md`, `persistence-contract.md`, `openspec-convention.md`.
+Convention files under `~/.gemini/antigravity/skills/_shared/` (global) or `.agent/skills/_shared/` (workspace): `engram-convention.md`, `persistence-contract.md`, `openspec-convention.md`.
 
 DAG state is tracked in Engram under `sdd/{change-name}/state`. Update it after each phase completes so `/sdd-continue` knows which phase to run next.
 
