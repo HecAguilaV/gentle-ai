@@ -1,6 +1,8 @@
 package engram
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -51,11 +53,23 @@ func TestInjectClaudeWritesMCPConfig(t *testing.T) {
 		t.Fatalf("ReadFile(engram.json) error = %v", err)
 	}
 
-	text := string(mcpContent)
-	if !strings.Contains(text, `"command": "engram"`) {
-		t.Fatal("engram.json missing command field")
+	// Parse the JSON and validate the "command" key exists and references engram.
+	// The command may be an absolute path (if engram is on PATH) or the relative
+	// string "engram" (if not found). Both are valid.
+	var parsed map[string]any
+	if err := json.Unmarshal(mcpContent, &parsed); err != nil {
+		t.Fatalf("Unmarshal(engram.json) error = %v", err)
 	}
-	if !strings.Contains(text, `"args"`) {
+	cmd, ok := parsed["command"].(string)
+	if !ok || cmd == "" {
+		t.Fatalf("engram.json missing or empty command field; got: %s", mcpContent)
+	}
+	// Command must either be the literal "engram" or an absolute path ending in "engram".
+	base := filepath.Base(cmd)
+	if base != "engram" && base != "engram.exe" {
+		t.Fatalf("engram.json command %q does not reference engram binary; got: %s", cmd, mcpContent)
+	}
+	if _, ok := parsed["args"]; !ok {
 		t.Fatal("engram.json missing args field")
 	}
 	// RED: must include --tools=agent
@@ -342,8 +356,27 @@ func TestInjectCodexWritesTOMLMCP(t *testing.T) {
 	if !strings.Contains(text, "[mcp_servers.engram]") {
 		t.Fatalf("config.toml missing [mcp_servers.engram] block; got:\n%s", text)
 	}
-	if !strings.Contains(text, `command = "engram"`) {
-		t.Fatalf("config.toml missing command = \"engram\"; got:\n%s", text)
+	// command must reference the engram binary — either relative ("engram") or an
+	// absolute path (when engram is on PATH). Both are valid.
+	if !strings.Contains(text, "command = ") {
+		t.Fatalf("config.toml missing command field; got:\n%s", text)
+	}
+	cmdLine := ""
+	for _, line := range strings.Split(text, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "command = ") {
+			cmdLine = strings.TrimSpace(line)
+			break
+		}
+	}
+	if cmdLine == "" {
+		t.Fatalf("config.toml missing command line; got:\n%s", text)
+	}
+	// The command value must end with "engram" or "engram.exe".
+	cmdVal := strings.TrimPrefix(cmdLine, "command = ")
+	cmdVal = strings.Trim(cmdVal, `"`)
+	base := filepath.Base(cmdVal)
+	if base != "engram" && base != "engram.exe" {
+		t.Fatalf("config.toml command %q does not reference engram binary; got:\n%s", cmdVal, text)
 	}
 	if !strings.Contains(text, `"--tools=agent"`) {
 		t.Fatalf("config.toml missing --tools=agent; got:\n%s", text)
@@ -565,5 +598,171 @@ func TestInjectCodexIsIdempotent(t *testing.T) {
 	count := strings.Count(string(content), "[mcp_servers.engram]")
 	if count != 1 {
 		t.Fatalf("config.toml has %d [mcp_servers.engram] blocks, want exactly 1; got:\n%s", count, string(content))
+	}
+}
+
+// ─── Absolute path resolution tests ──────────────────────────────────────────
+
+// mockEngramLookPath sets engramLookPath to a mock and restores it after the test.
+func mockEngramLookPath(t *testing.T, result string, errMsg string) {
+	t.Helper()
+	orig := engramLookPath
+	engramLookPath = func(string) (string, error) {
+		if errMsg != "" {
+			return "", fmt.Errorf("%s", errMsg)
+		}
+		return result, nil
+	}
+	t.Cleanup(func() { engramLookPath = orig })
+}
+
+// TestEngramInjectUsesAbsolutePathWhenAvailable verifies that when engram is
+// resolvable on PATH, its absolute path is written into the MCP config file
+// for agents that use StrategyMCPConfigFile (e.g. Windsurf).
+func TestEngramInjectUsesAbsolutePathWhenAvailable(t *testing.T) {
+	home := t.TempDir()
+
+	absPath := "/usr/local/bin/engram"
+	mockEngramLookPath(t, absPath, "")
+
+	windsurfAdapter, err := agents.NewAdapter("windsurf")
+	if err != nil {
+		t.Fatalf("NewAdapter(windsurf) error = %v", err)
+	}
+
+	result, injectErr := Inject(home, windsurfAdapter)
+	if injectErr != nil {
+		t.Fatalf("Inject(windsurf) error = %v", injectErr)
+	}
+	if !result.Changed {
+		t.Fatalf("Inject(windsurf) changed = false")
+	}
+
+	mcpPath := windsurfAdapter.MCPConfigPath(home, "engram")
+	content, readErr := os.ReadFile(mcpPath)
+	if readErr != nil {
+		t.Fatalf("ReadFile(%q) error = %v", mcpPath, readErr)
+	}
+
+	// Parse and validate the command field contains the absolute path.
+	var parsed map[string]any
+	if err := json.Unmarshal(content, &parsed); err != nil {
+		t.Fatalf("Unmarshal(%q) error = %v", mcpPath, err)
+	}
+
+	mcpServersRaw, ok := parsed["mcpServers"]
+	if !ok {
+		t.Fatalf("mcp_config.json missing mcpServers key; got:\n%s", content)
+	}
+	mcpServers, ok := mcpServersRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("mcpServers has unexpected type: %T", mcpServersRaw)
+	}
+	engramServerRaw, ok := mcpServers["engram"]
+	if !ok {
+		t.Fatalf("mcpServers missing engram entry; got:\n%s", content)
+	}
+	engramServer, ok := engramServerRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("engram server has unexpected type: %T", engramServerRaw)
+	}
+
+	cmd, _ := engramServer["command"].(string)
+	if cmd != absPath {
+		t.Fatalf("mcp_config.json command = %q, want absolute path %q", cmd, absPath)
+	}
+}
+
+// TestEngramInjectFallsBackToRelativeWhenNotFound verifies that when engram
+// cannot be resolved on PATH, the config falls back to the relative "engram"
+// command string.
+func TestEngramInjectFallsBackToRelativeWhenNotFound(t *testing.T) {
+	home := t.TempDir()
+
+	mockEngramLookPath(t, "", "not found")
+
+	windsurfAdapter, err := agents.NewAdapter("windsurf")
+	if err != nil {
+		t.Fatalf("NewAdapter(windsurf) error = %v", err)
+	}
+
+	result, injectErr := Inject(home, windsurfAdapter)
+	if injectErr != nil {
+		t.Fatalf("Inject(windsurf) error = %v", injectErr)
+	}
+	if !result.Changed {
+		t.Fatalf("Inject(windsurf) changed = false")
+	}
+
+	mcpPath := windsurfAdapter.MCPConfigPath(home, "engram")
+	content, readErr := os.ReadFile(mcpPath)
+	if readErr != nil {
+		t.Fatalf("ReadFile(%q) error = %v", mcpPath, readErr)
+	}
+
+	text := string(content)
+	if !strings.Contains(text, `"command": "engram"`) {
+		t.Fatalf("mcp_config.json should use relative fallback 'engram'; got:\n%s", text)
+	}
+}
+
+// TestEngramInjectAbsolutePathForOpenCodeMergeStrategy verifies that the
+// absolute path is used when the StrategyMergeIntoSettings strategy is
+// applied for OpenCode.
+func TestEngramInjectAbsolutePathForOpenCodeMergeStrategy(t *testing.T) {
+	home := t.TempDir()
+
+	restoreLookPath := engramLookPath
+	engramLookPath = func(name string) (string, error) {
+		return "/usr/local/bin/engram", nil
+	}
+	t.Cleanup(func() { engramLookPath = restoreLookPath })
+
+	adapter := opencodeAdapter()
+	settingsDir := filepath.Dir(adapter.SettingsPath(home))
+	os.MkdirAll(settingsDir, 0o755)
+	os.WriteFile(adapter.SettingsPath(home), []byte("{}"), 0o644)
+
+	_, err := Inject(home, adapter)
+	if err != nil {
+		t.Fatalf("Inject() error = %v", err)
+	}
+
+	content, err := os.ReadFile(adapter.SettingsPath(home))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+
+	if !strings.Contains(string(content), "/usr/local/bin/engram") {
+		t.Fatalf("OpenCode settings missing absolute engram path, got: %s", string(content))
+	}
+}
+
+// TestEngramInjectAbsolutePathForGeminiMergeStrategy verifies that the
+// absolute path is also used when the StrategyMergeIntoSettings strategy is
+// applied (e.g. Gemini CLI).
+func TestEngramInjectAbsolutePathForGeminiMergeStrategy(t *testing.T) {
+	home := t.TempDir()
+
+	absPath := "/opt/homebrew/bin/engram"
+	mockEngramLookPath(t, absPath, "")
+
+	result, err := Inject(home, geminiAdapter())
+	if err != nil {
+		t.Fatalf("Inject(gemini) error = %v", err)
+	}
+	if !result.Changed {
+		t.Fatalf("Inject(gemini) changed = false")
+	}
+
+	settingsPath := filepath.Join(home, ".gemini", "settings.json")
+	content, readErr := os.ReadFile(settingsPath)
+	if readErr != nil {
+		t.Fatalf("ReadFile(settings.json) error = %v", readErr)
+	}
+
+	text := string(content)
+	if !strings.Contains(text, absPath) {
+		t.Fatalf("settings.json missing absolute path %q; got:\n%s", absPath, text)
 	}
 }

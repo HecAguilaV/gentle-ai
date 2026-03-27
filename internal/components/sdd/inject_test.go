@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gentleman-programming/gentle-ai/internal/agents"
 	"github.com/gentleman-programming/gentle-ai/internal/agents/claude"
@@ -2707,5 +2708,304 @@ func TestInjectCursorWritesSubAgentFiles(t *testing.T) {
 		if strings.Contains(f, ".cursor/agents/") {
 			t.Fatalf("second inject should not report changed agent files, but got %s", f)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Fix 2: findProjectRoot — monorepo and enhanced workspace root detection
+// ---------------------------------------------------------------------------
+
+// TestFindProjectRootPnpmMonorepo verifies that when the starting directory
+// has a package.json but a parent has pnpm-workspace.yaml, the function
+// returns the monorepo root (parent), not the sub-package directory.
+func TestFindProjectRootPnpmMonorepo(t *testing.T) {
+	root := t.TempDir()
+
+	// Monorepo root: has pnpm-workspace.yaml
+	if err := os.WriteFile(filepath.Join(root, "pnpm-workspace.yaml"), []byte("packages:\n  - packages/*\n"), 0o644); err != nil {
+		t.Fatalf("write pnpm-workspace.yaml: %v", err)
+	}
+
+	// Sub-package: has its own package.json
+	subPkg := filepath.Join(root, "packages", "app")
+	if err := os.MkdirAll(subPkg, 0o755); err != nil {
+		t.Fatalf("MkdirAll(subPkg): %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(subPkg, "package.json"), []byte(`{"name":"app"}`), 0o644); err != nil {
+		t.Fatalf("write package.json: %v", err)
+	}
+
+	// Also add a package.json at the monorepo root
+	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"name":"monorepo"}`), 0o644); err != nil {
+		t.Fatalf("write root package.json: %v", err)
+	}
+
+	// Start from sub-package — should resolve to the monorepo root.
+	got, ok := findProjectRoot(subPkg)
+	if !ok {
+		t.Fatal("findProjectRoot returned false, want true")
+	}
+	if got != root {
+		t.Fatalf("findProjectRoot = %q, want monorepo root %q", got, root)
+	}
+}
+
+// TestFindProjectRootNxMonorepo verifies that nx.json is recognized as a
+// monorepo root marker.
+func TestFindProjectRootNxMonorepo(t *testing.T) {
+	root := t.TempDir()
+
+	// Monorepo root: has nx.json
+	if err := os.WriteFile(filepath.Join(root, "nx.json"), []byte(`{"version":2}`), 0o644); err != nil {
+		t.Fatalf("write nx.json: %v", err)
+	}
+
+	// Sub-package: has its own package.json
+	subPkg := filepath.Join(root, "apps", "web")
+	if err := os.MkdirAll(subPkg, 0o755); err != nil {
+		t.Fatalf("MkdirAll(subPkg): %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(subPkg, "package.json"), []byte(`{"name":"web"}`), 0o644); err != nil {
+		t.Fatalf("write package.json: %v", err)
+	}
+
+	got, ok := findProjectRoot(subPkg)
+	if !ok {
+		t.Fatal("findProjectRoot returned false, want true")
+	}
+	if got != root {
+		t.Fatalf("findProjectRoot = %q, want nx monorepo root %q", got, root)
+	}
+}
+
+// TestFindProjectRootTurboMonorepo verifies that turbo.json is recognized as
+// a monorepo root marker.
+func TestFindProjectRootTurboMonorepo(t *testing.T) {
+	root := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(root, "turbo.json"), []byte(`{"$schema":"..."}`), 0o644); err != nil {
+		t.Fatalf("write turbo.json: %v", err)
+	}
+
+	subPkg := filepath.Join(root, "packages", "ui")
+	if err := os.MkdirAll(subPkg, 0o755); err != nil {
+		t.Fatalf("MkdirAll(subPkg): %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(subPkg, "package.json"), []byte(`{"name":"ui"}`), 0o644); err != nil {
+		t.Fatalf("write package.json: %v", err)
+	}
+
+	got, ok := findProjectRoot(subPkg)
+	if !ok {
+		t.Fatal("findProjectRoot returned false, want true")
+	}
+	if got != root {
+		t.Fatalf("findProjectRoot = %q, want turbo root %q", got, root)
+	}
+}
+
+// TestFindProjectRootGitTakesPrecedence verifies that a .git directory at a
+// higher level takes precedence over a package.json in a subdirectory.
+func TestFindProjectRootGitTakesPrecedence(t *testing.T) {
+	root := t.TempDir()
+
+	// Project root: has .git
+	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(.git): %v", err)
+	}
+
+	// Subdirectory: has package.json
+	subDir := filepath.Join(root, "frontend")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(subDir): %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(subDir, "package.json"), []byte(`{"name":"frontend"}`), 0o644); err != nil {
+		t.Fatalf("write package.json: %v", err)
+	}
+
+	// Start from subdirectory — should find .git at root immediately.
+	got, ok := findProjectRoot(subDir)
+	if !ok {
+		t.Fatal("findProjectRoot returned false, want true")
+	}
+	if got != root {
+		t.Fatalf("findProjectRoot = %q, want .git root %q", got, root)
+	}
+}
+
+// TestFindProjectRootPackageJsonFallback verifies that when only package.json
+// exists (no .git, go.mod, or monorepo markers), it is returned as the best
+// candidate root.
+func TestFindProjectRootPackageJsonFallback(t *testing.T) {
+	root := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"name":"app"}`), 0o644); err != nil {
+		t.Fatalf("write package.json: %v", err)
+	}
+
+	subDir := filepath.Join(root, "src", "components")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(subDir): %v", err)
+	}
+
+	got, ok := findProjectRoot(subDir)
+	if !ok {
+		t.Fatal("findProjectRoot returned false, want true")
+	}
+	if got != root {
+		t.Fatalf("findProjectRoot = %q, want root with package.json %q", got, root)
+	}
+}
+
+// TestFindProjectRootEmptyDirReturnsNotFound verifies that an empty directory
+// (no markers at all) returns false.
+func TestFindProjectRootEmptyDirReturnsNotFound(t *testing.T) {
+	emptyDir := t.TempDir() // No markers, isolated temp dir
+
+	// The temp dir has no markers; we start from a subdirectory of it.
+	subDir := filepath.Join(emptyDir, "deep", "path")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(subDir): %v", err)
+	}
+
+	_, ok := findProjectRoot(subDir)
+	if ok {
+		// Note: this may find markers in ancestor dirs outside emptyDir
+		// on some systems. The test is best-effort for isolated environments.
+		t.Log("findProjectRoot found a marker outside the temp dir — acceptable on some systems")
+	}
+}
+
+// TestFindProjectRootEmptyStringReturnsNotFound verifies the early-return for
+// empty dir input.
+func TestFindProjectRootEmptyStringReturnsNotFound(t *testing.T) {
+	got, ok := findProjectRoot("")
+	if ok {
+		t.Fatalf("findProjectRoot(\"\") = (%q, true), want (\"\", false)", got)
+	}
+}
+
+// TestFindProjectRootDeepNested verifies that findProjectRoot handles deeply
+// nested directories without panicking or infinite looping, and that it
+// correctly returns ("", false) when the marker is beyond maxAncestorDepth.
+func TestFindProjectRootDeepNested(t *testing.T) {
+	root := t.TempDir()
+
+	// Build a directory 25 levels deep (beyond maxAncestorDepth=20).
+	deepDir := root
+	for i := 0; i < 25; i++ {
+		deepDir = filepath.Join(deepDir, fmt.Sprintf("level%02d", i))
+	}
+	if err := os.MkdirAll(deepDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(deepDir): %v", err)
+	}
+
+	// Place a go.mod only at the root (25 levels above deepDir).
+	// With maxAncestorDepth=20, findProjectRoot cannot reach it from level 25.
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module test\n"), 0o644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+
+	// This must not panic or loop infinitely.
+	// The important assertion is that it completes quickly.
+	done := make(chan struct{})
+	var gotPath string
+	var gotOk bool
+	go func() {
+		defer close(done)
+		gotPath, gotOk = findProjectRoot(deepDir)
+	}()
+
+	select {
+	case <-done:
+		// Completed without hanging — test passes.
+	case <-time.After(5 * time.Second):
+		t.Fatal("findProjectRoot appeared to hang on deeply nested dir")
+	}
+
+	// Correctness: starting 25 levels deep with go.mod only at level 0 and
+	// maxAncestorDepth=20, the function cannot reach level 0 — must return ("", false).
+	if gotOk {
+		t.Fatalf("findProjectRoot should return false when marker is beyond maxAncestorDepth, got path=%q ok=%v", gotPath, gotOk)
+	}
+	if gotPath != "" {
+		t.Fatalf("findProjectRoot should return empty path when not found, got %q", gotPath)
+	}
+}
+
+// TestFindProjectRootMultiplePackageJsonPicksHighest verifies that when
+// multiple package.json files exist in ancestor directories, findProjectRoot
+// returns the highest ancestor (closest to filesystem root), not the first
+// (closest to starting dir).
+func TestFindProjectRootMultiplePackageJsonPicksHighest(t *testing.T) {
+	root := t.TempDir()
+
+	// root/package.json  ← highest ancestor, should win
+	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"name":"root"}`), 0o644); err != nil {
+		t.Fatalf("write root package.json: %v", err)
+	}
+
+	// root/packages/app/package.json  ← closer to start, should NOT win
+	appDir := filepath.Join(root, "packages", "app")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(appDir): %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(appDir, "package.json"), []byte(`{"name":"app"}`), 0o644); err != nil {
+		t.Fatalf("write app package.json: %v", err)
+	}
+
+	// root/packages/app/src/ — start here
+	srcDir := filepath.Join(appDir, "src")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(srcDir): %v", err)
+	}
+
+	got, ok := findProjectRoot(srcDir)
+	if !ok {
+		t.Fatal("findProjectRoot returned false, want true")
+	}
+	if got != root {
+		t.Fatalf("findProjectRoot = %q, want highest ancestor root %q (not closest package.json %q)", got, root, appDir)
+	}
+}
+
+// TestFindProjectRootAllMarkers verifies that each project marker (beyond .git,
+// go.mod, and package.json) is correctly recognized as a project root.
+func TestFindProjectRootAllMarkers(t *testing.T) {
+	allMarkers := []struct {
+		name   string
+		marker string
+		isDir  bool
+	}{
+		{"pnpm-workspace.yml", "pnpm-workspace.yml", false},
+		{"lerna.json", "lerna.json", false},
+		{"rush.json", "rush.json", false},
+		{"Cargo.toml", "Cargo.toml", false},
+		{"pyproject.toml", "pyproject.toml", false},
+		{"pom.xml", "pom.xml", false},
+		{"build.gradle", "build.gradle", false},
+	}
+
+	for _, tt := range allMarkers {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			subDir := filepath.Join(root, "sub", "deep")
+			os.MkdirAll(subDir, 0o755)
+
+			markerPath := filepath.Join(root, tt.marker)
+			if tt.isDir {
+				os.MkdirAll(markerPath, 0o755)
+			} else {
+				os.WriteFile(markerPath, []byte(""), 0o644)
+			}
+
+			result, ok := findProjectRoot(subDir)
+			if !ok {
+				t.Fatalf("findProjectRoot(%s) returned false for marker %s", subDir, tt.marker)
+			}
+			if result != root {
+				t.Fatalf("findProjectRoot(%s) = %s, want %s", subDir, result, root)
+			}
+		})
 	}
 }

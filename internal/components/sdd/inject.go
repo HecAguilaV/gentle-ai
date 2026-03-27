@@ -62,14 +62,23 @@ type subAgentInjector interface {
 	EmbeddedSubAgentsDir() string
 }
 
-// projectMarkers are filenames/dirs whose presence signals a valid project root.
-// We verify at least one exists before writing workspace-scoped files (like
-// native Windsurf workflows) to prevent accidentally polluting the user's
-// home directory when gentle-ai is invoked from ~.
-var projectMarkers = []string{
+// monorepoRootMarkers identify files/dirs that ONLY exist at the true root
+// of a multi-package workspace. If any of these is found while walking up,
+// we stop immediately — this is the authoritative project root.
+var monorepoRootMarkers = []string{
+	"pnpm-workspace.yaml",
+	"pnpm-workspace.yml",
+	"nx.json",
+	"turbo.json",
+	"lerna.json",
+	"rush.json",
+}
+
+// strongProjectMarkers are definitive project roots that are not
+// package.json (which can appear at every level in a monorepo).
+var strongProjectMarkers = []string{
 	".git",
 	"go.mod",
-	"package.json",
 	"Cargo.toml",
 	"pyproject.toml",
 	"pom.xml",
@@ -79,33 +88,59 @@ var projectMarkers = []string{
 // maxAncestorDepth is the maximum number of parent directories findProjectRoot
 // will traverse before giving up. This prevents infinite loops on deeply-nested
 // trees and ensures we stop well before reaching the filesystem root.
-const maxAncestorDepth = 10
+const maxAncestorDepth = 20
 
-// findProjectRoot walks upward from dir, checking each level for a known
-// project marker (.git, go.mod, package.json, …). It returns the first
-// matching directory and true. If no root is found within maxAncestorDepth
-// levels, or dir is empty, it returns ("", false).
+// findProjectRoot walks upward from dir, looking for the best project root.
+//
+// Priority order:
+//  1. Monorepo root markers (pnpm-workspace.yaml, nx.json, turbo.json, etc.) —
+//     return immediately when found; these are authoritative workspace roots.
+//  2. Strong markers (.git, go.mod, Cargo.toml, etc.) — return immediately;
+//     these are unambiguous project roots.
+//  3. Weak marker (package.json only) — record as candidate but keep walking
+//     upward, since a monorepo marker may exist higher up.
 //
 // Walking upward means users can run gentle-ai from any subdirectory of their
-// project (e.g. repo/internal/foo) and still get workflow files written to
-// the correct workspace root.
+// project (e.g. repo/packages/app) and still detect the correct workspace root.
+// In a JS/TS monorepo, every package has package.json, so we must not stop at
+// the first one — we keep walking to find the highest ancestor with package.json
+// (or a monorepo root marker above it).
 func findProjectRoot(dir string) (string, bool) {
 	if dir == "" {
 		return "", false
 	}
 	current := filepath.Clean(dir)
+	var bestCandidate string // best weak (package.json-only) match found so far
+
 	for i := 0; i < maxAncestorDepth; i++ {
-		for _, marker := range projectMarkers {
+		// Check monorepo root markers first — highest priority; return immediately.
+		for _, marker := range monorepoRootMarkers {
 			if _, err := os.Stat(filepath.Join(current, marker)); err == nil {
 				return current, true
 			}
 		}
+		// Check strong project markers — definitive roots; return immediately.
+		for _, marker := range strongProjectMarkers {
+			if _, err := os.Stat(filepath.Join(current, marker)); err == nil {
+				return current, true
+			}
+		}
+		// Weak marker: package.json — record but keep walking. Always update
+		// to the highest ancestor with a package.json, since in a JS project
+		// the root package.json is the authoritative project boundary.
+		if _, err := os.Stat(filepath.Join(current, "package.json")); err == nil {
+			bestCandidate = current
+		}
 		parent := filepath.Dir(current)
 		if parent == current {
 			// Reached filesystem root ("/" on Unix, "C:\" on Windows).
-			return "", false
+			break
 		}
 		current = parent
+	}
+
+	if bestCandidate != "" {
+		return bestCandidate, true
 	}
 	return "", false
 }

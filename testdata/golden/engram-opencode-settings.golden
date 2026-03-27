@@ -1,12 +1,11 @@
 {
   "mcp": {
     "engram": {
-      "command": [
-        "engram",
+      "args": [
         "mcp",
         "--tools=agent"
       ],
-      "enabled": true,
+      "command": "/opt/homebrew/bin/engram",
       "type": "local"
     }
   }
