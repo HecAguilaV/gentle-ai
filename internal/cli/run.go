@@ -520,8 +520,16 @@ func (s componentApplyStep) Run() error {
 			if err != nil {
 				return fmt.Errorf("resolve install command for component %q: %w", s.component, err)
 			}
-			if err := runCommandSequence(commands); err != nil {
-				return err
+			installErr := runCommandSequence(commands)
+			if installErr != nil && !ggaAvailable(s.profile) {
+				// The GGA install script uses `set -e` and `read -p` for
+				// the "already installed" confirmation. Without a TTY
+				// (common in automated/re-run scenarios), `read` fails
+				// with exit code 1 and `set -e` kills the script before
+				// it can exit 0. If GGA is actually available after the
+				// script ran, the install succeeded functionally — treat
+				// as success.
+				return installErr
 			}
 		}
 		if err := gga.EnsureRuntimeAssets(s.homeDir); err != nil {
