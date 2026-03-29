@@ -2303,6 +2303,123 @@ func TestNoWrapAroundUpOnBackupScreen(t *testing.T) {
 	}
 }
 
+// ─── Issue #130: ModelConfig pre-populate model assignments ────────────────
+
+// TestModelConfigOpenCodePrePopulatesAssignments verifies that when the user
+// opens the OpenCode model picker from ScreenModelConfig (ModelConfigMode),
+// previously saved model assignments are pre-populated into
+// m.Selection.ModelAssignments so the picker shows them instead of "(default)".
+func TestModelConfigOpenCodePrePopulatesAssignments(t *testing.T) {
+	// Pre-existing assignments that should be read from settings
+	preExisting := map[string]model.ModelAssignment{
+		"sdd-orchestrator": {ProviderID: "anthropic", ModelID: "claude-sonnet-4-20250514"},
+		"sdd-apply":        {ProviderID: "openai", ModelID: "gpt-4o"},
+	}
+
+	// Override the read function to return pre-existing assignments
+	orig := readCurrentAssignmentsFn
+	readCurrentAssignmentsFn = func(_ string) (map[string]model.ModelAssignment, error) {
+		return preExisting, nil
+	}
+	t.Cleanup(func() { readCurrentAssignmentsFn = orig })
+
+	// Also mock osStatModelCache to succeed so ModelPicker is initialized
+	origStat := osStatModelCache
+	osStatModelCache = func(name string) (os.FileInfo, error) {
+		return nil, nil // simulate cache present (stat succeeds)
+	}
+	t.Cleanup(func() { osStatModelCache = origStat })
+
+	m := NewModel(system.DetectionResult{}, "dev")
+	m.Screen = ScreenModelConfig
+	m.Cursor = 1 // Configure OpenCode models
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	state := updated.(Model)
+
+	if state.Screen != ScreenModelPicker {
+		t.Fatalf("screen = %v, want ScreenModelPicker", state.Screen)
+	}
+	if !state.ModelConfigMode {
+		t.Fatalf("ModelConfigMode should be true")
+	}
+	if state.Selection.ModelAssignments == nil {
+		t.Fatal("ModelAssignments should be pre-populated, got nil")
+	}
+	got := state.Selection.ModelAssignments["sdd-orchestrator"]
+	want := preExisting["sdd-orchestrator"]
+	if got != want {
+		t.Errorf("sdd-orchestrator assignment = %+v, want %+v", got, want)
+	}
+	got2 := state.Selection.ModelAssignments["sdd-apply"]
+	want2 := preExisting["sdd-apply"]
+	if got2 != want2 {
+		t.Errorf("sdd-apply assignment = %+v, want %+v", got2, want2)
+	}
+}
+
+// TestModelConfigOpenCodeDoesNotOverwriteExistingSessionAssignments verifies that
+// if m.Selection.ModelAssignments is already populated (user made changes in the
+// current session), we do NOT overwrite them with the file contents.
+func TestModelConfigOpenCodeDoesNotOverwriteExistingSessionAssignments(t *testing.T) {
+	sessionAssignment := model.ModelAssignment{ProviderID: "openai", ModelID: "gpt-4o-mini"}
+
+	orig := readCurrentAssignmentsFn
+	readCurrentAssignmentsFn = func(_ string) (map[string]model.ModelAssignment, error) {
+		return map[string]model.ModelAssignment{
+			"sdd-orchestrator": {ProviderID: "anthropic", ModelID: "claude-sonnet-4-20250514"},
+		}, nil
+	}
+	t.Cleanup(func() { readCurrentAssignmentsFn = orig })
+
+	origStat := osStatModelCache
+	osStatModelCache = func(name string) (os.FileInfo, error) { return nil, nil }
+	t.Cleanup(func() { osStatModelCache = origStat })
+
+	m := NewModel(system.DetectionResult{}, "dev")
+	m.Screen = ScreenModelConfig
+	m.Cursor = 1
+	// Pre-populate Selection.ModelAssignments in the current session
+	m.Selection.ModelAssignments = map[string]model.ModelAssignment{
+		"sdd-orchestrator": sessionAssignment,
+	}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	state := updated.(Model)
+
+	// The session assignment must be preserved, not overwritten by file contents
+	got := state.Selection.ModelAssignments["sdd-orchestrator"]
+	if got != sessionAssignment {
+		t.Errorf("session assignment overwritten: got %+v, want %+v", got, sessionAssignment)
+	}
+}
+
+// TestModelConfigOpenCodeNoPrePopulationWhenFileEmpty verifies that when
+// ReadCurrentModelAssignments returns empty map, ModelAssignments stays nil.
+func TestModelConfigOpenCodeNoPrePopulationWhenFileEmpty(t *testing.T) {
+	orig := readCurrentAssignmentsFn
+	readCurrentAssignmentsFn = func(_ string) (map[string]model.ModelAssignment, error) {
+		return map[string]model.ModelAssignment{}, nil // empty — no file / no agents
+	}
+	t.Cleanup(func() { readCurrentAssignmentsFn = orig })
+
+	origStat := osStatModelCache
+	osStatModelCache = func(name string) (os.FileInfo, error) { return nil, nil }
+	t.Cleanup(func() { osStatModelCache = origStat })
+
+	m := NewModel(system.DetectionResult{}, "dev")
+	m.Screen = ScreenModelConfig
+	m.Cursor = 1
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	state := updated.(Model)
+
+	// When no assignments in file, ModelAssignments should remain nil (not an empty map)
+	if state.Selection.ModelAssignments != nil {
+		t.Errorf("expected nil ModelAssignments when file has no agents, got %v", state.Selection.ModelAssignments)
+	}
+}
+
 // TestCustomSkillPickerBackGoesToStrictTDD verifies that in the custom preset,
 // with OpenCode + SDD + Skills, pressing Back on ScreenSkillPicker goes to ScreenStrictTDD
 // and NOT directly to ScreenSDDMode. StrictTDD must come before SDDMode in the back chain.

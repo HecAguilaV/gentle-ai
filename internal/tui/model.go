@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/gentleman-programming/gentle-ai/internal/backup"
 	"github.com/gentleman-programming/gentle-ai/internal/catalog"
+	"github.com/gentleman-programming/gentle-ai/internal/components/sdd"
 	"github.com/gentleman-programming/gentle-ai/internal/model"
 	"github.com/gentleman-programming/gentle-ai/internal/opencode"
 	"github.com/gentleman-programming/gentle-ai/internal/pipeline"
@@ -23,6 +24,13 @@ import (
 // osStatModelCache is a package-level variable so tests can override it to
 // simulate a missing or present OpenCode model cache file.
 var osStatModelCache = os.Stat
+
+// readCurrentAssignmentsFn is a package-level variable so tests can override
+// how current model assignments are read from opencode.json. It wraps
+// sdd.ReadCurrentModelAssignments and is only called during ModelConfigMode.
+var readCurrentAssignmentsFn = func(settingsPath string) (map[string]model.ModelAssignment, error) {
+	return sdd.ReadCurrentModelAssignments(settingsPath)
+}
 
 // TickMsg drives the spinner animation on the installing screen.
 type TickMsg time.Time
@@ -713,6 +721,15 @@ func (m Model) confirmSelection() (tea.Model, tea.Cmd) {
 				m.ModelPicker = screens.NewModelPickerState(cachePath)
 			} else {
 				m.ModelPicker = screens.ModelPickerState{}
+			}
+			// Pre-populate with existing assignments from opencode.json.
+			// Only when there are no in-session assignments yet — the nil guard
+			// ensures we don't overwrite changes the user already made this session.
+			if m.Selection.ModelAssignments == nil {
+				settingsPath := opencode.DefaultSettingsPath()
+				if current, err := readCurrentAssignmentsFn(settingsPath); err == nil && len(current) > 0 {
+					m.Selection.ModelAssignments = current
+				}
 			}
 			m.setScreen(ScreenModelPicker)
 		default: // Back
