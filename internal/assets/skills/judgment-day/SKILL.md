@@ -9,7 +9,7 @@ description: >
 license: Apache-2.0
 metadata:
   author: gentleman-programming
-  version: "1.3"
+  version: "1.4"
 ---
 
 ## When to Use
@@ -59,12 +59,40 @@ Contradiction → agents DISAGREE on the same thing → flag for manual decision
 
 Present findings as a structured verdict table (see Output Format).
 
-### Pattern 3: Fix and Re-judge
+### Pattern 3: Warning Classification
 
-1. If **confirmed issues** exist → delegate a **Fix Agent** (separate delegation)
+Judges MUST classify every WARNING into one of two sub-types:
+
+```
+WARNING (real)        → Causes a bug, data loss, security hole, or incorrect behavior
+                        in a realistic production scenario. Fix required.
+WARNING (theoretical) → Requires a contrived scenario, corrupted input, or conditions
+                        that cannot arise through normal usage. Report but do NOT block.
+```
+
+**How to classify**: ask "Can a normal user, using the tool as intended, trigger this?" If YES → real. If it requires a malicious manifest, renamed home dir, two clicks in <1ms, or Windows volume root edge case → theoretical.
+
+**Theoretical warnings are reported as INFO** in the verdict table. They are NOT fixed, do NOT trigger re-judgment, and do NOT count toward the convergence threshold. The orchestrator includes them in the final report for awareness.
+
+### Pattern 4: Fix and Re-judge
+
+1. If **confirmed CRITICALs or real WARNINGs** exist → delegate a **Fix Agent** (separate delegation)
 2. After Fix Agent completes → re-launch **both judges in parallel** (same blind protocol, fresh delegates)
 3. **After 2 fix iterations**, if issues remain → present findings to user and ASK: "¿Querés que siga iterando? / Should I continue iterating?" If YES → continue fix+judge cycle. If NO → JUDGMENT: ESCALATED.
 4. If both judges return clean → JUDGMENT: APPROVED ✅
+
+### Pattern 5: Convergence Threshold
+
+**Round 1**: Present the verdict table to the user. ASK: "These are the confirmed issues. Want me to fix them?" Only fix after user confirms. Then re-judge with full scope.
+
+**Round 2+**: Only re-judge if there are **confirmed CRITICALs**. For anything else:
+- **Real WARNINGs** (confirmed): Fix inline, do NOT re-launch judges. Report as "fixed without re-judge" in the verdict.
+- **Theoretical WARNINGs**: Report as INFO. Do NOT fix, do NOT re-judge.
+- **SUGGESTIONs**: Fix inline if trivial (dead code, style). Do NOT re-judge.
+
+**APPROVED criteria after Round 1**: 0 confirmed CRITICALs + 0 confirmed real WARNINGs = APPROVED. Theoretical warnings and suggestions may remain.
+
+This prevents the diminishing-returns cycle where each fix round introduces minor artifacts that trigger another round of nit-picking.
 
 ---
 
@@ -90,10 +118,13 @@ Synthesize verdict
 │   └── JUDGMENT: APPROVED ✅ (stop here)
 │
 ├── Issues found (confirmed, suspect, or contradictions)?
-│   └── Delegate Fix Agent with confirmed issues list
+│   └── Present verdict table to user
 │       ▼
-│       ⚠️  BLOCKING: Your NEXT action MUST be re-launching judges.
-│       ⚠️  Do NOT push, commit, or message the user.
+│       ASK: "¿Arreglo los issues confirmados? / Fix confirmed issues?"
+│       ▼
+│       ├── User says YES → Delegate Fix Agent with confirmed issues list
+│       ├── User says NO → JUDGMENT: ESCALATED (user chose not to fix)
+│       └── User gives specific feedback → adjust fix list accordingly
 │       ▼
 │       Wait for Fix Agent to complete
 │       ▼
@@ -145,10 +176,14 @@ You are an adversarial code reviewer. Your ONLY job is to find problems.
 Return a structured list of findings ONLY. No praise, no approval.
 
 Each finding:
-- Severity: CRITICAL | WARNING | SUGGESTION
+- Severity: CRITICAL | WARNING (real) | WARNING (theoretical) | SUGGESTION
 - File: path/to/file.ext (line N if applicable)
 - Description: What is wrong and why it matters
 - Suggested fix: one-line description of the fix (not code, just intent)
+
+**WARNING classification rule**: Ask "Can a normal user, using the tool as intended, trigger this?"
+- YES → `WARNING (real)` — e.g., silent error on disk full, data corruption on normal input
+- NO → `WARNING (theoretical)` — e.g., requires malicious manifest, renamed home dir, race condition in <1ms, OS-specific edge case that doesn't apply to the project's target platforms
 
 Always include at the end: **Skill Resolution**: {injected|fallback-registry|fallback-path|none} — {details}
 
@@ -180,6 +215,7 @@ You are a surgical fix agent. You apply ONLY the confirmed issues listed below.
 - Fix ONLY the confirmed issues listed above
 - Do NOT refactor beyond what is strictly needed to fix each issue
 - Do NOT change code that was not flagged
+- **Scope rule**: If you fix a pattern in one file (e.g., add error logging for a silent discard), search for the SAME pattern in ALL other files touched by this change and fix them ALL. Inconsistent fixes across files are the #1 cause of unnecessary re-judge rounds.
 - After each fix, note: file changed, line changed, what was done
 
 Return a summary:
@@ -201,9 +237,10 @@ Return a summary:
 | Finding | Judge A | Judge B | Severity | Status |
 |---------|---------|---------|----------|--------|
 | Missing null check in auth.go:42 | ✅ | ✅ | CRITICAL | Confirmed |
-| Race condition in worker.go:88 | ✅ | ❌ | WARNING | Suspect (A only) |
+| Race condition in worker.go:88 | ✅ | ❌ | WARNING (real) | Suspect (A only) |
+| Windows volume root edge case | ❌ | ✅ | WARNING (theoretical) | INFO — reported |
 | Naming mismatch in handler.go:15 | ❌ | ✅ | SUGGESTION | Suspect (B only) |
-| Error swallowed in db.go:201 | ✅ | ✅ | CRITICAL | Confirmed |
+| Error swallowed in db.go:201 | ✅ | ✅ | WARNING (real) | Confirmed |
 
 **Confirmed issues**: 2 CRITICAL
 **Suspect issues**: 1 WARNING, 1 SUGGESTION
@@ -271,10 +308,10 @@ This is a self-correction mechanism. Do NOT ignore fallback reports.
 
 These rules cannot be skipped, overridden, or deprioritized under any circumstances:
 
-1. **MUST NOT** declare `JUDGMENT: APPROVED` until Round 2 judges BOTH return CLEAN
+1. **MUST NOT** declare `JUDGMENT: APPROVED` until: Round 1 judges return CLEAN, OR Round 2 judges confirm 0 CRITICALs + 0 confirmed real WARNINGs (theoretical warnings and suggestions may remain)
 2. **MUST NOT** run `git push`, `git commit`, or any code-modifying action after fixes until re-judgment completes
 3. **MUST NOT** save a session summary or tell the user "done" until every JD reaches a terminal state (APPROVED or ESCALATED)
-4. **After the Fix Agent returns**, your IMMEDIATE next action is launching Round 2 judges in parallel. No other action (push, summary, user message) may come first.
+4. **After the Fix Agent returns**, your IMMEDIATE next action is re-launching judges in parallel for re-judgment. Do NOT push or commit before re-judgment completes.
 5. **When running multiple JDs in parallel**, each JD is independent. One JD completing does NOT allow skipping rounds on another.
 
 ---
