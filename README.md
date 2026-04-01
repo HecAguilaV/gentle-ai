@@ -50,13 +50,14 @@ This is NOT an AI agent installer. Most agents are easy to install. This is an *
 curl -fsSL https://raw.githubusercontent.com/Gentleman-Programming/gentle-ai/main/scripts/install.sh | bash
 ```
 
-### Windows (PowerShell)
+### Windows
 
 ```powershell
-irm https://raw.githubusercontent.com/Gentleman-Programming/gentle-ai/main/scripts/install.ps1 | iex
+scoop bucket add gentleman https://github.com/Gentleman-Programming/scoop-bucket
+scoop install gentle-ai
 ```
 
-This downloads the latest release for your platform and launches the interactive TUI. No Go toolchain required.
+Or via PowerShell script: `irm https://raw.githubusercontent.com/Gentleman-Programming/gentle-ai/main/scripts/install.ps1 | iex`
 
 ### After install: project-level setup
 
@@ -86,7 +87,14 @@ brew install gentle-ai
 go install github.com/gentleman-programming/gentle-ai/cmd/gentle-ai@latest
 ```
 
-### Windows (PowerShell)
+### Scoop (Windows)
+
+```powershell
+scoop bucket add gentleman https://github.com/Gentleman-Programming/scoop-bucket
+scoop install gentle-ai
+```
+
+### Windows (PowerShell — alternative)
 
 ```powershell
 # Option 1: PowerShell installer (downloads binary from GitHub Releases)
