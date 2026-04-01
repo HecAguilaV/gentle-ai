@@ -115,6 +115,10 @@ Engram auto-detects the project name from the git remote at MCP startup. The `--
 
 If the agent saves a memory under a project name that doesn't match existing observations, engram warns about potential name drift. Use `mem_merge_projects` (MCP tool) or `engram projects consolidate` (CLI) to merge variants.
 
+## Upsert Behavior
+
+Same `topic_key` + `project` + `scope` → UPDATE (overwrite), not INSERT. Previous content is lost — `revision_count` increments but old content is NOT saved. This is by design — engram is working memory, not an audit trail. For iteration history or team collaboration, use `openspec` or `hybrid` mode.
+
 ## Why This Convention
 
 - Deterministic titles → recovery works by exact match

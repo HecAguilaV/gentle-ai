@@ -94,6 +94,18 @@ In **Interactive** mode, between phases:
 
 For this agent (solo inline execution): **Interactive** is already the natural behavior — you pause between phases via Windsurf's Approval Gates. **Automatic** means skip the "Approve to proceed?" gates and run all phases sequentially without stopping.
 
+### Artifact Store Mode
+
+When the user invokes `/sdd-new`, `/sdd-ff`, or `/sdd-continue` for the first time in a session, ALSO ASK which artifact store they want for this change:
+
+- **`engram`**: Fast, no files created. Artifacts live in engram only. Best for solo work and quick iteration. Note: re-running a phase overwrites the previous version (no history).
+- **`openspec`**: File-based. Creates `openspec/` directory with full artifact trail. Committable, shareable with team, full git history.
+- **`hybrid`**: Both — files for team sharing + engram for cross-session recovery. Higher token cost.
+
+If the user doesn't specify, detect: if engram is available → default to `engram`. Otherwise → `none`.
+
+Cache the artifact store choice for the session. Pass it as `artifact_store.mode` to every sub-agent launch.
+
 ### Dependency Graph
 ```
 proposal -> specs --> tasks -> apply -> verify -> archive
